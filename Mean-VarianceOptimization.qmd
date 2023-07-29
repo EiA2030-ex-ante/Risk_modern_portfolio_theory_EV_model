@@ -1,0 +1,578 @@
+---
+title: "Risk assessment: Spatially Specific Mean-Variance Optimization"
+format: html
+self-contained: true
+editor: visual
+toc: true
+toc-location: left
+number-sections: true
+---
+
+# Mean-Variance Analysis Toolkit
+
+For this analysis, we use trial data collected under the CSISA-KVK trials.
+
+# Load Agronomic Trial Data from Dataverse
+
+In this code, we show how to download CSISA_KVK trials dataset from dataverse.
+
+```{r, warning=FALSE}
+
+rm(list=ls())         # clear 
+
+library(sp)
+library(dplyr)
+library(rio)
+library(readxl)
+library(tidyr)
+
+## Loading required package: agro
+if (!require(agro))  source("https://install-github.me/reagro/agro")
+
+ff <- agro::get_data_from_uri("hdl:11529/10548817", ".")
+ff
+
+CSISA_KVK <- read.csv("./hdl_11529_10548817/CSISA_KVK_Wheat_DoS_Trial_Data.csv", stringsAsFactors=FALSE)
+```
+
+## Trial Data
+
+```{r, warning=FALSE}
+
+CSISA_KVK$Latitude=as.numeric(CSISA_KVK$Latitude)
+CSISA_KVK$Longitude=as.numeric(CSISA_KVK$Longitude)
+
+CSISA_KVK=subset(CSISA_KVK,!(is.na(CSISA_KVK$Latitude)))
+CSISA_KVK=subset(CSISA_KVK,!(is.na(CSISA_KVK$Longitude)))
+
+# Descriptive statistics 
+library(modelsummary)
+library(rutilstb)
+variety_yield=tabstat(CSISA_KVK, var=c("GrainYield"),by="Variety")
+variety_yield
+
+colnames(variety_yield)<-paste(colnames(variety_yield),"yields",sep="_")
+
+variety_yield=subset(variety_yield,!(is.na(variety_yield$sd_yields)))
+library(data.table)
+
+# Characteristics frontier
+
+# Mean-standard deviation graph
+library(ggplot2)
+yieldmean_sd=ggplot(variety_yield,aes(sd_yields,mean_yields)) +
+  geom_point()+
+ geom_text(aes(label=Variety_yields),size=3,hjust=0,nudge_x = -0.1,nudge_y = -0.1)+
+ labs(x="Standard deviation",y="Average wheat yield")
+previous_theme <- theme_set(theme_bw())
+yieldmean_sd
+
+ggsave("figures/yieldmean_sd_plot.png")
+
+# Geom-error plot
+library(ggpubr)
+ggerrorplot(CSISA_KVK, x = "Variety", y = "GrainYield",
+            add = "mean", ggtheme=theme_bw(), color = "SowingSchedule", palette = "Paired",
+            error.plot = "pointrange",
+            position = position_dodge(0.5))+
+  labs(x="Variety",y="Wheat grain yield (t/ha)")+coord_flip()
+ggsave("figures/yield_differences_major_crops.png")
+```
+
+# Data subsetting
+
+For the portfolio optimization model, we need a balanced panel for the variety by planting date combination over the 4 years. We therefore subset only locations, varieties and planting dates that meet this criteria
+
+```{r, warning=FALSE}
+table(CSISA_KVK$District)
+table(CSISA_KVK$Year)
+table(CSISA_KVK$SowingSchedule)
+table(CSISA_KVK$Variety)
+
+table(CSISA_KVK$Variety,CSISA_KVK$Year)
+
+CSISA_KVK$one=1
+
+library(psych)
+
+CSISA_KVK=subset(CSISA_KVK,CSISA_KVK$Variety%in%c("HD-2733","HD-2967","HI-1563","PBW-373"))
+
+CSISA_KVK=subset(CSISA_KVK,!(CSISA_KVK$District%in%c("Deoria","Kushinagar")))
+
+CSISA_KVK$Variety_SowingSchedule=paste(CSISA_KVK$Variety,CSISA_KVK$SowingSchedule,sep="_")
+
+table(CSISA_KVK$Variety_SowingSchedule,CSISA_KVK$District)
+
+AveYd_Year_V_SowSched=describeBy(CSISA_KVK[,c("GrainYield","District","Year","Variety_SowingSchedule")], group=c("District","Year","Variety_SowingSchedule"), mat=TRUE)
+
+AveYd_Year_V_SowSched=subset(AveYd_Year_V_SowSched,!(is.na(AveYd_Year_V_SowSched$n)))
+
+AveYd_Year_V_SowSched=subset(AveYd_Year_V_SowSched,AveYd_Year_V_SowSched$vars==1)
+AveYd_Year_V_SowSched=AveYd_Year_V_SowSched[,c("group1","group2","group3","mean")]
+```
+
+# Mean variance yield optimization
+
+
+
+```{r, warning=FALSE}
+# All Bihar -------------------------
+AveYd_Year_V_SowSched_AllBihar=describeBy(CSISA_KVK[,c("GrainYield","Year","Variety_SowingSchedule")], group=c("Year","Variety_SowingSchedule"), mat=TRUE)
+
+AveYd_Year_V_SowSched_AllBihar=subset(AveYd_Year_V_SowSched_AllBihar,!(is.na(AveYd_Year_V_SowSched_AllBihar$n)))
+
+AveYd_Year_V_SowSched_AllBihar=subset(AveYd_Year_V_SowSched_AllBihar,AveYd_Year_V_SowSched_AllBihar$vars==1)
+
+AveYd_Year_V_SowSched_AllBihar=subset(AveYd_Year_V_SowSched_AllBihar,!(AveYd_Year_V_SowSched_AllBihar$group2%in%c("HD-2733_T5","HI-1563_T1","PBW-373_T1","PBW-373_T2","HD-2733_T3")))
+
+AveYd_Year_V_SowSched_AllBihar=AveYd_Year_V_SowSched_AllBihar[,c("group1","group2","mean")]
+
+# Convert to wide
+AveYd_Year_V_SowSched_AllBihar_wide=xtabs(mean ~ group1 + group2, data = AveYd_Year_V_SowSched_AllBihar)
+
+class(AveYd_Year_V_SowSched_AllBihar_wide)=NULL
+AveYd_Year_V_SowSched_AllBihar_wide=as.data.frame(AveYd_Year_V_SowSched_AllBihar_wide)
+
+library(lubridate)
+date=dmy(c("01-01-2016","01-01-2017","01-01-2018","01-01-2019","01-01-2020"))
+AveYd_Year_V_SowSched_AllBihar_wide$date=date
+
+library(fPortfolio)
+library(timeSeries)
+
+rownames(AveYd_Year_V_SowSched_AllBihar_wide) <- AveYd_Year_V_SowSched_AllBihar_wide$date
+
+AveYd_Year_V_SowSched_AllBihar_wide <- AveYd_Year_V_SowSched_AllBihar_wide[, 1:15]
+
+# library(janitor)
+
+# AveYd_Year_V_SowSched_AllBihar_wide=AveYd_Year_V_SowSched_AllBihar_wide %>%
+#   clean_names()
+#ts(returns)
+
+AveYd_Year_V_SowSched_AllBihar_wide_small=AveYd_Year_V_SowSched_AllBihar_wide[,1:3]
+AveYd_Year_V_SowSched_AllBihar_wide_ts_small <- timeSeries(AveYd_Year_V_SowSched_AllBihar_wide_small)
+
+longFrontier_AllBihar_small <- portfolioFrontier(AveYd_Year_V_SowSched_AllBihar_wide_ts_small)
+
+print(longFrontier_AllBihar_small)
+
+#plot(longFrontier_AllBihar_small)
+
+tailoredFrontierPlot(object = longFrontier_AllBihar_small, mText = "MV Portfolio - LongOnly
+Constraints",
+risk = "Cov")
+
+weightsPlot(longFrontier_AllBihar_small, mtext = FALSE)
+text <- "Mean-Variance Portfolio - Long Only Constraints"
+mtext(text, side = 3, line = 3, font = 2, cex = 0.9)
+
+# OGK Robust ---------------
+
+AveYd_Year_V_SowSched_AllBihar_wide_ts <- timeSeries(AveYd_Year_V_SowSched_AllBihar_wide)
+
+covOGKEstimate <- covOGKEstimator(AveYd_Year_V_SowSched_AllBihar_wide_ts)
+fastCovOGKEstimator <- function(x, spec = NULL, ...) covOGKEstimate
+
+covOGKSpec <- portfolioSpec()
+setEstimator(covOGKSpec) <- "fastCovOGKEstimator"
+setNFrontierPoints(covOGKSpec) <- 5
+
+covOGKFrontier <- portfolioFrontier(
+data = AveYd_Year_V_SowSched_AllBihar_wide_ts, spec = covOGKSpec)
+print(covOGKFrontier)
+
+setNFrontierPoints(covOGKSpec) <- 20
+covOGKFrontier <- portfolioFrontier(
+data = AveYd_Year_V_SowSched_AllBihar_wide_ts, spec = covOGKSpec)
+tailoredFrontierPlot(
+covOGKFrontier,
+mText = "OGK Robustified MV Portfolio",
+risk = "Sigma")
+
+
+col = divPalette(15, "RdYlGn")
+weightsPlot(covOGKFrontier, col = col, mtext = FALSE)
+text <- "OGK Robustified MV Portfolio"
+mtext(text, side = 3, line = 3, font = 2, cex = 0.9)
+
+weightedReturnsPlot(covOGKFrontier, col = col, mtext = FALSE)
+covRiskBudgetsPlot(covOGKFrontier, col = col, mtext = FALSE)
+
+
+
+```
+
+
+
+
+# Economic Optimization
+
+```{r, warning=FALSE}
+# Import the cost of cultivation data 
+
+CACP_Data_2008_20=import("CACP_Data_2008_20.csv") 
+library(janitor)
+CACP_Data_2008_20=CACP_Data_2008_20 %>% clean_names()
+
+CACP_Data_2008_20$district_name[CACP_Data_2008_20$district_name=="Arrah"]="Ara"
+CACP_Data_2008_20_Bihar=subset(CACP_Data_2008_20,CACP_Data_2008_20$district_name%in%c("Ara","Begusarai","Buxar","East Champaran","Lakhisarai","Madhepura","Muzaffarpur","Rohtas") & crop=="Wheat"& year%in%c("2016-17","2017-18","2018-19","2019-20"))
+
+# Calculate prices ---------------------
+library(data.table)
+CACP_Data_2008_20_Bihar=data.table(CACP_Data_2008_20_Bihar)
+CACP_Data_2008_20_Bihar=na_if(CACP_Data_2008_20_Bihar, 0)
+
+library(data.table)
+CACP_Data_2008_20_Bihar=data.table(CACP_Data_2008_20_Bihar)
+
+#Fertilizer
+CACP_Data_2008_20_Bihar$fertiliser_n_rs_kg=CACP_Data_2008_20_Bihar$fertiliser_n_rs/CACP_Data_2008_20_Bihar$fertiliser_n_kg
+
+CACP_Data_2008_20_Bihar$fertiliser_p_rs_kg=CACP_Data_2008_20_Bihar$fertiliser_p_rs/CACP_Data_2008_20_Bihar$fertiliser_p_kg
+
+CACP_Data_2008_20_Bihar$fertiliser_k_rs_kg=CACP_Data_2008_20_Bihar$fertiliser_k_rs/CACP_Data_2008_20_Bihar$fertiliser_k_kg
+
+#Irrigation
+CACP_Data_2008_20_Bihar$own_irrigation_machine_rs_hrs=CACP_Data_2008_20_Bihar$own_irrigation_machine_rs/CACP_Data_2008_20_Bihar$own_irrigation_machine_hrs
+
+CACP_Data_2008_20_Bihar$hired_irrigation_machine_rs_hrs=CACP_Data_2008_20_Bihar$hired_irrigation_machine_rs/CACP_Data_2008_20_Bihar$hired_irrigation_machine_hrs
+
+#Labor
+CACP_Data_2008_20_Bihar$family_labour_rs_hrs=CACP_Data_2008_20_Bihar$family_labour_rs/CACP_Data_2008_20_Bihar$family_labour_hrs
+CACP_Data_2008_20_Bihar$family_labour_rs_ha=CACP_Data_2008_20_Bihar$family_labour_rs/CACP_Data_2008_20_Bihar$crop_area_ha
+CACP_Data_2008_20_Bihar$family_labour_hrs=CACP_Data_2008_20_Bihar$family_labour_hrs/CACP_Data_2008_20_Bihar$crop_area_ha
+
+CACP_Data_2008_20_Bihar$casual_labour_rs_hrs=CACP_Data_2008_20_Bihar$casual_labour_rs/CACP_Data_2008_20_Bihar$casual_labour_hrs
+CACP_Data_2008_20_Bihar$casual_labour_rs_ha=CACP_Data_2008_20_Bihar$casual_labour_rs/CACP_Data_2008_20_Bihar$crop_area_ha
+CACP_Data_2008_20_Bihar$casual_labour_hrs_ha=CACP_Data_2008_20_Bihar$casual_labour_hrs/CACP_Data_2008_20_Bihar$crop_area_ha
+
+CACP_Data_2008_20_Bihar$main_product_rs_kg=CACP_Data_2008_20_Bihar$main_product_rs/(CACP_Data_2008_20_Bihar$main_product_qtls*100)
+
+CACP_Data_2008_20_Bihar_Inputs=subset(CACP_Data_2008_20_Bihar,
+                                           select=c("fertiliser_n_rs_kg","fertiliser_p_rs_kg","fertiliser_k_rs_kg",
+                                                    "own_irrigation_machine_rs_hrs","hired_irrigation_machine_rs_hrs",
+                                                    "family_labour_rs_hrs","family_labour_rs_ha","casual_labour_rs_hrs","casual_labour_rs_ha","main_product_rs_kg","district_name","year"))
+CACP_Data_2008_20_Bihar_Inputs$year=as.factor(CACP_Data_2008_20_Bihar_Inputs$year)                                     
+CACP_Data_2008_20_Bihar_Inputs_dist=CACP_Data_2008_20_Bihar_Inputs[,lapply(.SD,median,na.rm=TRUE),by=.(district_name,year)]
+
+library(dplyr)
+library(tidyr)
+# Replace all NAs with the column median
+CACP_Data_2008_20_Bihar_Inputs_dist =CACP_Data_2008_20_Bihar_Inputs_dist %>% mutate(across(where(is.numeric), ~replace_na(., median(., na.rm=TRUE))))
+
+# CACP_Data_2008_20_Bihar_Inputs_dist$district_name[CACP_Data_2008_20_Bihar_Inputs_dist$district_name=="East Champaran"]="EastChamparan"
+
+
+# Summarize the CSISA_KVK data 
+### N -----------------------------------
+CSISA_KVK$BasalDAPN=CSISA_KVK$BasalDAP*0.18
+
+table(CSISA_KVK$GradeNPK)
+CSISA_KVK$GradeNPKN=NA
+CSISA_KVK$GradeNPKN[CSISA_KVK$GradeNPK=="10.26.26"]=0.1
+CSISA_KVK$GradeNPKN[CSISA_KVK$GradeNPK=="12.32.16"]=0.12
+CSISA_KVK$GradeNPKN[CSISA_KVK$GradeNPK=="20.20.0.13"]=0.2
+
+CSISA_KVK$GradeNPKP=NA
+CSISA_KVK$GradeNPKP[CSISA_KVK$GradeNPK=="10.26.26"]=0.26
+CSISA_KVK$GradeNPKP[CSISA_KVK$GradeNPK=="12.32.16"]=0.32
+CSISA_KVK$GradeNPKP[CSISA_KVK$GradeNPK=="20.20.0.13"]=0.2
+
+CSISA_KVK$GradeNPKK=NA
+CSISA_KVK$GradeNPKK[CSISA_KVK$GradeNPK=="10.26.26"]=0.26
+CSISA_KVK$GradeNPKK[CSISA_KVK$GradeNPK=="12.32.16"]=0.16
+CSISA_KVK$GradeNPKK[CSISA_KVK$GradeNPK=="20.20.0.13"]=0
+
+
+CSISA_KVK$BasalNPKN=CSISA_KVK$BasalNPK*CSISA_KVK$GradeNPKN
+
+CSISA_KVK$Split1UreaN=CSISA_KVK$Split1Urea*0.46
+CSISA_KVK$Split2UreaN=CSISA_KVK$Split2Urea*0.46
+CSISA_KVK$Split3UreaN=CSISA_KVK$Split3Urea*0.46
+
+# N
+CSISA_KVK$N=rowSums(CSISA_KVK[,c("BasalDAPN","BasalNPKN","Split1UreaN","Split2UreaN","Split3UreaN")],na.rm = TRUE)
+
+### P ------------------------------------
+CSISA_KVK$BasalDAPP=CSISA_KVK$BasalDAP*0.46
+CSISA_KVK$BasalNPKP=CSISA_KVK$BasalNPK*CSISA_KVK$GradeNPKP
+
+CSISA_KVK$P=rowSums(CSISA_KVK[,c("BasalDAPP","BasalNPKP")],na.rm = TRUE)
+
+### K
+CSISA_KVK$BasalMOPK=CSISA_KVK$BasalMOP*0.6
+CSISA_KVK$BasalNPKK=CSISA_KVK$BasalNPK*CSISA_KVK$GradeNPKK
+
+CSISA_KVK$K=rowSums(CSISA_KVK[,c("BasalMOPK","BasalNPKK")],na.rm = TRUE)
+
+# Merge with price data by district and year 
+
+CSISA_KVK_CACP=merge(CSISA_KVK,CACP_Data_2008_20_Bihar_Inputs_dist,by.x=c("District","Year"),by.y=c("district_name","year"),all.x=TRUE)
+
+table(CSISA_KVK_CACP$District)
+table(CSISA_KVK$District)
+table(CACP_Data_2008_20_Bihar_Inputs_dist$district_name)
+
+#table(CSISA_KVK$HerbicideName)
+CSISA_KVK_CACP =CSISA_KVK_CACP %>% mutate(across(where(is.numeric), ~replace_na(., median(., na.rm=TRUE))))
+
+# Calculate potential revenue
+CSISA_KVK_CACP$Wheat_revenue_rs_ha=CSISA_KVK_CACP$main_product_rs_kg*CSISA_KVK_CACP$GrainYield*1000
+
+summary(CSISA_KVK_CACP$Wheat_revenue_rs_ha)
+
+# N fert costs
+CSISA_KVK_CACP$N_cost_rs_ha=CSISA_KVK_CACP$N*CSISA_KVK_CACP$fertiliser_n_rs_kg
+
+CSISA_KVK_CACP$P_cost_rs_ha=CSISA_KVK_CACP$P*CSISA_KVK_CACP$fertiliser_p_rs_kg
+
+CSISA_KVK_CACP$K_cost_rs_ha=CSISA_KVK_CACP$K*CSISA_KVK_CACP$fertiliser_k_rs_kg
+
+CSISA_KVK_CACP$Hired_irrig_cost_rs_ha=CSISA_KVK_CACP$IrrigationNumber*10*CSISA_KVK_CACP$hired_irrigation_machine_rs_hrs
+
+
+# Total variable costs 
+CSISA_KVK_CACP$Wheat_total_costs_rs_ha=rowSums(CSISA_KVK_CACP[,c("N_cost_rs_ha","P_cost_rs_ha","K_cost_rs_ha","Hired_irrig_cost_rs_ha","casual_labour_rs_ha")],na.rm = TRUE)
+
+# Partial profits 
+CSISA_KVK_CACP$partial_profit_rs_ha=CSISA_KVK_CACP$Wheat_revenue_rs_ha-CSISA_KVK_CACP$Wheat_total_costs_rs_ha
+
+
+# Plot total costs by variety and sowing dates 
+
+# Plot profits
+library(ggpubr)
+ggerrorplot(CSISA_KVK_CACP, x = "Variety", y = "partial_profit_rs_ha",
+            add = "mean", ggtheme=theme_bw(), color = "SowingSchedule", palette = "Paired",
+            error.plot = "pointrange",
+            position = position_dodge(0.5))+
+  labs(x="Variety",y="Partial profit (Rs/ha)")
+ggsave("figures/profit_differences_major_varieties.png")
+
+# Get district level estimates
+library(data.table) 
+CSISA_KVK_CACP=data.table(CSISA_KVK_CACP)
+CSISA_KVK_CACP_dist=CSISA_KVK_CACP[,lapply(.SD,base::mean,na.rm=TRUE),by=.(District,Year,Variety_SowingSchedule)]
+
+CSISA_KVK_CACP_state=CSISA_KVK_CACP[,lapply(.SD,base::mean,na.rm=TRUE),by=.(Year,Variety_SowingSchedule)]
+
+
+```
+
+
+## Yield
+
+```{r, warning=FALSE}
+CSISA_KVK_CACP_state_wide=xtabs(GrainYield ~ Year + Variety_SowingSchedule, data = CSISA_KVK_CACP_state)
+
+class(CSISA_KVK_CACP_state_wide)=NULL
+CSISA_KVK_CACP_state_wide=as.data.frame(CSISA_KVK_CACP_state_wide)
+
+# Remove the columns with NA
+CSISA_KVK_CACP_state_wide=na_if(CSISA_KVK_CACP_state_wide, 0)
+CSISA_KVK_CACP_state_wide=CSISA_KVK_CACP_state_wide %>% 
+select_if(~ !any(is.na(.)))
+
+library(lubridate)
+date=dmy(c("01-01-2016","01-01-2017","01-01-2018","01-01-2019","01-01-2020"))
+
+CSISA_KVK_CACP_state_wide$date=date
+
+library(fPortfolio)
+library(timeSeries)
+
+rownames(CSISA_KVK_CACP_state_wide) <- CSISA_KVK_CACP_state_wide$date
+
+CSISA_KVK_CACP_state_wide$date=NULL
+
+CSISA_KVK_CACP_state_wide_ts <- timeSeries(CSISA_KVK_CACP_state_wide)
+
+covOGKEstimate <- covOGKEstimator(CSISA_KVK_CACP_state_wide_ts)
+fastCovOGKEstimator <- function(x, spec = NULL, ...) covOGKEstimate
+
+covOGKSpec <- portfolioSpec()
+setEstimator(covOGKSpec) <- "fastCovOGKEstimator"
+setNFrontierPoints(covOGKSpec) <- 5
+
+covOGKFrontier <- portfolioFrontier(
+data = CSISA_KVK_CACP_state_wide_ts, spec = covOGKSpec)
+print(covOGKFrontier)
+
+setNFrontierPoints(covOGKSpec) <- 20
+covOGKFrontier <- portfolioFrontier(
+data = CSISA_KVK_CACP_state_wide_ts, spec = covOGKSpec)
+
+tailoredFrontierPlot(
+    covOGKFrontier,
+    mText = "OGK Robustified MV Portfolio",
+    risk = "Sigma"
+)
+
+png("figures/State_variety_sowingschedule_frontier.png")
+tailoredFrontierPlot(
+covOGKFrontier,
+mText = "OGK Robustified MV Portfolio",
+risk = "Sigma")
+dev.off()
+
+png("figures/State_variety_sowingschedule_weights.png")
+col = divPalette(15, "RdYlGn")
+weightsPlot(covOGKFrontier, col = col, mtext = FALSE)
+text <- "OGK Robustified MV Portfolio"
+mtext(text, side = 3, line = 3, font = 2, cex = 0.9)
+dev.off()
+
+BiharState_return <- getTargetReturn(covOGKFrontier)
+BiharState_risk <- getTargetRisk(covOGKFrontier)
+BiharState_wts = getWeights(covOGKFrontier)
+
+BiharState_yield_frontier = cbind(BiharState_return, BiharState_risk, BiharState_wts)
+
+
+
+
+```
+
+## Revenue
+
+```{r, warning=FALSE}
+CSISA_KVK_CACP_state_wide_rev=xtabs(Wheat_revenue_rs_ha ~ Year + Variety_SowingSchedule, data = CSISA_KVK_CACP_state)
+
+class(CSISA_KVK_CACP_state_wide_rev)=NULL
+CSISA_KVK_CACP_state_wide_rev=as.data.frame(CSISA_KVK_CACP_state_wide_rev)
+
+# Remove the columns with NA
+CSISA_KVK_CACP_state_wide_rev=na_if(CSISA_KVK_CACP_state_wide_rev, 0)
+CSISA_KVK_CACP_state_wide_rev=CSISA_KVK_CACP_state_wide_rev %>% 
+select_if(~ !any(is.na(.)))
+
+library(lubridate)
+date=dmy(c("01-01-2016","01-01-2017","01-01-2018","01-01-2019","01-01-2020"))
+
+CSISA_KVK_CACP_state_wide_rev$date=date
+
+library(fPortfolio)
+library(timeSeries)
+
+rownames(CSISA_KVK_CACP_state_wide_rev) <- CSISA_KVK_CACP_state_wide_rev$date
+
+CSISA_KVK_CACP_state_wide_rev$date=NULL
+
+CSISA_KVK_CACP_state_wide_rev_ts <- timeSeries(CSISA_KVK_CACP_state_wide_rev)
+
+covOGKEstimate <- covOGKEstimator(CSISA_KVK_CACP_state_wide_rev_ts)
+fastCovOGKEstimator <- function(x, spec = NULL, ...) covOGKEstimate
+
+covOGKSpec <- portfolioSpec()
+setEstimator(covOGKSpec) <- "fastCovOGKEstimator"
+setNFrontierPoints(covOGKSpec) <- 5
+
+covOGKFrontier <- portfolioFrontier(
+data = CSISA_KVK_CACP_state_wide_rev_ts, spec = covOGKSpec)
+print(covOGKFrontier)
+
+setNFrontierPoints(covOGKSpec) <- 20
+covOGKFrontier <- portfolioFrontier(
+data = CSISA_KVK_CACP_state_wide_rev_ts, spec = covOGKSpec)
+
+png("figures/Revenue_State_variety_sowingschedule_frontier.png")
+tailoredFrontierPlot(
+covOGKFrontier,
+mText = "OGK Robustified MV Portfolio",
+risk = "Sigma")
+dev.off()
+
+png("figures/Revenue_State_variety_sowingschedule_weights.png")
+col = divPalette(15, "RdYlGn")
+weightsPlot(covOGKFrontier, col = col, mtext = FALSE)
+text <- "OGK Robustified MV Portfolio"
+mtext(text, side = 3, line = 3, font = 2, cex = 0.9)
+dev.off()
+
+BiharState_return_revenue <- getTargetReturn(covOGKFrontier)
+BiharState_risk_revenue <- getTargetRisk(covOGKFrontier)
+BiharState_wts_revenue = getWeights(covOGKFrontier)
+
+BiharState_revenue_frontier <- cbind(BiharState_return_revenue, BiharState_risk_revenue, BiharState_wts_revenue)
+
+
+```
+
+## Profit
+
+```{r, warning=FALSE}
+CSISA_KVK_CACP_state_wide_prof=xtabs(partial_profit_rs_ha ~ Year + Variety_SowingSchedule, data = CSISA_KVK_CACP_state)
+
+class(CSISA_KVK_CACP_state_wide_prof)=NULL
+CSISA_KVK_CACP_state_wide_prof=as.data.frame(CSISA_KVK_CACP_state_wide_prof)
+
+# Remove the columns with NA
+CSISA_KVK_CACP_state_wide_prof=na_if(CSISA_KVK_CACP_state_wide_prof, 0)
+CSISA_KVK_CACP_state_wide_prof=CSISA_KVK_CACP_state_wide_prof %>% 
+select_if(~ !any(is.na(.)))
+
+library(lubridate)
+date=dmy(c("01-01-2016","01-01-2017","01-01-2018","01-01-2019","01-01-2020"))
+
+CSISA_KVK_CACP_state_wide_prof$date=date
+
+library(fPortfolio)
+library(timeSeries)
+
+rownames(CSISA_KVK_CACP_state_wide_prof) <- CSISA_KVK_CACP_state_wide_prof$date
+
+CSISA_KVK_CACP_state_wide_prof$date=NULL
+
+CSISA_KVK_CACP_state_wide_prof_ts <- timeSeries(CSISA_KVK_CACP_state_wide_prof)
+
+covOGKEstimate <- covOGKEstimator(CSISA_KVK_CACP_state_wide_prof_ts)
+fastCovOGKEstimator <- function(x, spec = NULL, ...) covOGKEstimate
+
+covOGKSpec <- portfolioSpec()
+setEstimator(covOGKSpec) <- "fastCovOGKEstimator"
+setNFrontierPoints(covOGKSpec) <- 20
+
+covOGKFrontier <- portfolioFrontier(
+data = CSISA_KVK_CACP_state_wide_prof_ts, spec = covOGKSpec)
+print(covOGKFrontier)
+
+setNFrontierPoints(covOGKSpec) <- 20
+covOGKFrontier <- portfolioFrontier(
+data = CSISA_KVK_CACP_state_wide_prof_ts, spec = covOGKSpec)
+
+
+tailoredFrontierPlot(
+    covOGKFrontier,
+    mText = "OGK Robustified MV Portfolio",
+    risk = "Sigma"
+)
+png("figures/Profit_State_variety_sowingschedule_frontier.png")
+tailoredFrontierPlot(
+covOGKFrontier,
+mText = "OGK Robustified MV Portfolio",
+risk = "Sigma")
+dev.off()
+
+
+col <- divPalette(15, "RdYlGn")
+weightsPlot(covOGKFrontier, col = col, mtext = FALSE)
+text <- "OGK Robustified MV Portfolio"
+mtext(text, side = 3, line = 3, font = 2, cex = 0.9)
+
+png("figures/Profit_State_variety_sowingschedule_weights.png")
+col = divPalette(15, "RdYlGn")
+weightsPlot(covOGKFrontier, col = col, mtext = FALSE)
+text <- "OGK Robustified MV Portfolio"
+mtext(text, side = 3, line = 3, font = 2, cex = 0.9)
+dev.off()
+
+BiharState_return_profit <- getTargetReturn(covOGKFrontier)
+BiharState_risk_profit <- getTargetRisk(covOGKFrontier)
+BiharState_wts_profit = getWeights(covOGKFrontier)
+
+BiharState_profit_frontier <- cbind(BiharState_return_profit, BiharState_risk_profit, BiharState_wts_profit)
+
+
+```
+
