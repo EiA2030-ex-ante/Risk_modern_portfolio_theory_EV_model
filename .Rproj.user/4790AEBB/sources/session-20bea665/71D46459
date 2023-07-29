@@ -1,0 +1,31 @@
+{
+    "id": "71D46459",
+    "path": "~/GitHub/causal_RF_targeting/CSISA_KVK_trials_causal_RF_targeting_analytics/1_CSISA_KVK_Trials_data_manipulation.qmd",
+    "project_path": null,
+    "type": "quarto_markdown",
+    "hash": "3573881461",
+    "contents": "",
+    "dirty": false,
+    "created": 1690637330972.0,
+    "source_on_save": false,
+    "relative_order": 2,
+    "properties": {
+        "rmdVisualMode": "false",
+        "rmdVisualWrapConfigured": "true",
+        "source_window_id": "",
+        "Source": "Source",
+        "docOutlineVisible": "1",
+        "rmdVisualCollapsedChunks": "",
+        "rmdVisualModeLocation": "235:179.1999969482422",
+        "cursorPosition": "20,0",
+        "scrollLine": "14"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1690637694,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1690637694947,
+    "read_only": false,
+    "read_only_alternatives": []
+}
