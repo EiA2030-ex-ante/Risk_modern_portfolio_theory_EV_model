@@ -1,11 +1,21 @@
 ---
-title: "Risk assessment: Spatially Specific Mean-Variance Optimization"
+title: "Risk Assessment: Spatially Specific Mean-Variance Optimization of Sowing Dates and Variety Duration Using CSISA KVK Trials Data"
 format: html
+fig-dpi: 300
+fig-width: 8.88
+fig-align: center
+fig-height: 5
+
 self-contained: true
+author: Maxwell Mkondiwa
 editor: visual
 toc: true
 toc-location: left
 number-sections: true
+execute: 
+  message: false
+  warning: false
+  echo: true
 ---
 
 # Mean-Variance Analysis Toolkit
@@ -113,8 +123,6 @@ AveYd_Year_V_SowSched=AveYd_Year_V_SowSched[,c("group1","group2","group3","mean"
 
 # Mean variance yield optimization
 
-
-
 ```{r, warning=FALSE}
 # All Bihar -------------------------
 AveYd_Year_V_SowSched_AllBihar=describeBy(CSISA_KVK[,c("GrainYield","Year","Variety_SowingSchedule")], group=c("Year","Variety_SowingSchedule"), mat=TRUE)
@@ -202,9 +210,6 @@ covRiskBudgetsPlot(covOGKFrontier, col = col, mtext = FALSE)
 
 
 ```
-
-
-
 
 # Economic Optimization
 
@@ -359,7 +364,6 @@ CSISA_KVK_CACP_state=CSISA_KVK_CACP[,lapply(.SD,base::mean,na.rm=TRUE),by=.(Year
 
 
 ```
-
 
 ## Yield
 
@@ -575,4 +579,3 @@ BiharState_profit_frontier <- cbind(BiharState_return_profit, BiharState_risk_pr
 
 
 ```
-
