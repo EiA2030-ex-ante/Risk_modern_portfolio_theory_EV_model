@@ -1,6 +1,9 @@
 ---
 title: "Risk Assessment: Spatially Specific Mean-Variance Optimization of Sowing Dates and Variety Duration Using CSISA KVK Trials Data"
-format: html
+format: 
+    html:
+      code-fold: true
+      code-tools: true
 fig-dpi: 300
 fig-width: 8.88
 fig-align: center
@@ -18,7 +21,29 @@ execute:
   echo: true
 ---
 
-# Mean-Variance Analysis Toolkit
+# Introduction
+
+**Purpose:** Mean-variance analysis seeks to maximize returns at the minimum risk (or variance). The approach was introduced by Harry Markowitz to identify efficient diversification options for investments.
+
+***Advantages***
+
+·        Allows selection of multiple alternatives beyond combinations observed in the data
+
+***Disadvantages***
+
+·        Focuses only two moments (mean and variance) yet other moments of the distribution may also matter.
+
+***Stylized use case: Optimal sowing date and variety combinations***
+
+We use CSISA-KVK trial data to demonstrate the approach. The agronomic trials cover a 5-year period in 8 districts in the Indian state of Bihar.
+
+***Input data requirements:*** This is an outcome-based risk assessment requiring yield or profits data for multiple years for the same site.
+
+***Toolkit workflow***
+
+Mean-Variance optimization requires only the outcome variable for multiple realizations and portfolio choices. We then use quadratic optimization to identify the frontier and optimal weights indicating the amount of land or resources that should be devoted to particular choices.  
+
+![](EV workflow.png)
 
 For this analysis, we use trial data collected under the CSISA-KVK trials.
 
@@ -113,6 +138,7 @@ CSISA_KVK$Variety_SowingSchedule=paste(CSISA_KVK$Variety,CSISA_KVK$SowingSchedul
 
 table(CSISA_KVK$Variety_SowingSchedule,CSISA_KVK$District)
 
+library(psych)
 AveYd_Year_V_SowSched=describeBy(CSISA_KVK[,c("GrainYield","District","Year","Variety_SowingSchedule")], group=c("District","Year","Variety_SowingSchedule"), mat=TRUE)
 
 AveYd_Year_V_SowSched=subset(AveYd_Year_V_SowSched,!(is.na(AveYd_Year_V_SowSched$n)))
@@ -579,3 +605,11 @@ BiharState_profit_frontier <- cbind(BiharState_return_profit, BiharState_risk_pr
 
 
 ```
+
+# Conclusion
+
+This workflow note has explored the yield, partial profit, and risk implications of wheat varietal and planting date choices from a 5-year agronomic experiment (2016/17 to 2020/21) in 8 districts in the Eastern part of India, Bihar.  We found that sowing wheat in early November using a long duration variety HD 2967 gives the highest agronomic returns for a risk neutral farmer. With some risk aversion, farmers would opt for more diversified varieties but mostly with early planting.
+
+# References
+
+Barkley, A., Peterson, H.H., and Shroyer, J. 2010. \"Wheat variety selection to maximize returns and minimize risk: An application of portfolio theory.\" *Journal of Agricultural and Applied Economics* 42(1): 39-55. Doi: <https://doi.org/10.1017/S107407080000328X>.
